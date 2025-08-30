@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>key — Commands & Examples</title>
+<style>
+  :root {
+    --bg: #0e1116; --fg: #e6edf3; --muted: #9da5b4;
+    --accent: #8ab4f8; --border: #2d333b; --code-bg: #161b22;
+    --green: #34d399; --red: #f87171; --yellow: #facc15;
+  }
+  html, body { background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, sans-serif; line-height: 1.55; }
+  main { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+  h1, h2, h3 { line-height: 1.2; }
+  h1 { font-size: 2rem; margin: 0 0 0.75rem; }
+  h2 { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  h3 { margin-top: 1.2rem; }
+  p { margin: 0.75rem 0; }
+  .muted { color: var(--muted); }
+  .pill { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.6rem; background: #0b1220; color: #b6c6ff; font-size: 0.85rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  pre { position: relative; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 0.9rem; overflow: auto; margin: 0.75rem 0; }
+  pre .copy { position: absolute; top: 8px; right: 8px; font-size: 0.85rem; background: #111827; border: 1px solid var(--border); color: var(--fg); padding: 0.25rem 0.6rem; border-radius: 6px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .grid { display: grid; gap: 1rem; }
+  @media (min-width: 900px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+  .tip, .warn, .note { border: 1px solid var(--border); border-left-width: 4px; padding: 0.75rem 0.9rem; border-radius: 8px; background: #0c121a; }
+  .tip { border-left-color: var(--green); }
+  .warn { border-left-color: var(--yellow); }
+  .note { border-left-color: var(--accent); }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #111827; border: 1px solid var(--border); border-bottom-width: 3px; border-radius: 6px; padding: 0.05rem 0.4rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>key — Commands & Examples</h1>
+  <p class="muted">Deterministic key material generator. Two passwords in, raw bytes out. Easy to reproduce, easy to automate.</p>
+  <p><span class="pill">Quick syntax</span></p>
+  <pre><code>key SIZE_BYTES [options]</code><button class="copy" aria-label="Copy">Copy</button></pre>
+  <p class="warn"><strong>Not a perfect OTP:</strong> the output is deterministic from your two passwords. If you reuse key material or generate less than your data length, OTP guarantees do not hold.</p>
+</header>
+
+<section id="what-it-does">
+  <h2>What the tool does</h2>
+  <ul>
+    <li>Prompts for <strong>two passwords</strong>: your main password and a <em>second password (“pepper”)</em>.</li>
+    <li>Derives a 32‑byte seed with <strong>Argon2id</strong> from <em>password + secret salt</em> (pepper → secret salt via BLAKE3).</li>
+    <li>Expands that seed into <code>SIZE_BYTES</code> using a deterministic stream (<code>blake3</code> or <code>chacha</code>).</li>
+    <li>Writes bytes securely: <code>0600</code> on Unix (with symlink protection) or a protected DACL on Windows.</li>
+  </ul>
+</section>
+
+<section id="options">
+  <h2>All commands & options</h2>
+
+  <table>
+    <tr><th>Argument / Flag</th><th>Default</th><th>What it does</th></tr>
+    <tr>
+      <td><code>SIZE_BYTES</code> (positional)</td>
+      <td>—</td>
+      <td>How many bytes to generate. Range: <code>1</code> to <code>21,474,836,480</code> (20 GiB). Value is <em>bytes only</em> (no 1MB/1GiB suffixes).</td>
+    </tr>
+    <tr>
+      <td><code>-o</code>, <code>--output &lt;FILE&gt;</code></td>
+      <td><code>key.key</code></td>
+      <td>Where to write the bytes. Existing file is overwritten unless you use <code>--no-clobber</code>.</td>
+    </tr>
+    <tr>
+      <td><code>-a</code>, <code>--algo &lt;blake3|chacha&gt;</code></td>
+      <td><code>blake3</code></td>
+      <td>Selects the deterministic stream. <code>blake3</code> is generally faster; <code>chacha</code> is a CSPRNG stream seeded from the Argon2id output. Both are deterministic.</td>
+    </tr>
+    <tr>
+      <td><code>--argon2-memory &lt;KiB&gt;</code></td>
+      <td><code>65536</code> (64 MiB)</td>
+      <td>Memory cost (in KiB) for Argon2id. Upper bound is 4 GiB (<code>4,194,304</code> KiB). Higher = slower but stronger.</td>
+    </tr>
+    <tr>
+      <td><code>--argon2-time &lt;N&gt;</code></td>
+      <td><code>3</code></td>
+      <td>Iterations (time cost) for Argon2id. Higher = slower but stronger.</td>
+    </tr>
+    <tr>
+      <td><code>--argon2-par &lt;N&gt;</code></td>
+      <td><code>0</code> (auto)</td>
+      <td>Parallel lanes. <code>0</code> uses available cores. The tool enforces <strong>m ≥ 8p</strong> by reducing lanes if needed.</td>
+    </tr>
+    <tr>
+      <td><code>--no-clobber</code></td>
+      <td><em>off</em></td>
+      <td>Fails if the output file already exists (safer when scripting).</td>
+    </tr>
+    <tr>
+      <td><code>--print-first &lt;N&gt;</code></td>
+      <td><em>unset</em></td>
+      <td>Prints the first <code>N</code> bytes as hex (to stdout) without changing the file stream. Handy for reproducibility checks.</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong>Prompts:</strong> You will be asked for two passwords, each with confirmation. The “pepper” must be ≥ <code>8</code> characters and contain at least one non‑whitespace character.
+  </div>
+</section>
+
+<section id="quick-examples">
+  <h2>Quick examples</h2>
+  <div class="grid grid-2">
+
+    <div>
+      <h3>1) 32‑byte key (default stream)</h3>
+      <pre><code>./key 32 -o key32.bin</code><button class="copy">Copy</button></pre>
+      <p class="muted">Good for AES‑256 or as seed material for other systems.</p>
+    </div>
+
+    <div>
+      <h3>2) 1 GiB key (ChaCha stream)</h3>
+      <pre><code># 1 GiB = 1,073,741,824 bytes
+./key 1073741824 --algo chacha -o key-1g.bin</code><button class="copy">Copy</button></pre>
+    </div>
+
+    <div>
+      <h3>3) Harden the KDF (more memory/time)</h3>
+      <pre><code>./key 10485760 \
+  --argon2-memory 262144 \   # 256 MiB
+  --argon2-time 4 \
+  --argon2-par 0 \
+  -o key-10m.bin</code><button class="copy">Copy</button></pre>
+      <p class="muted">Raise memory/time as your machine allows; leave lanes at <code>0</code> (auto).</p>
+    </div>
+
+    <div>
+      <h3>4) Don’t overwrite existing files</h3>
+      <pre><code>./key 1048576 --no-clobber -o key.bin</code><button class="copy">Copy</button></pre>
+      <p class="muted">Safer in scripts—fails if <code>key.bin</code> already exists.</p>
+    </div>
+
+    <div>
+      <h3>5) Print first 64 bytes (hex) for a quick check</h3>
+      <pre><code>./key 1048576 --print-first 64 -o key.bin</code><button class="copy">Copy</button></pre>
+      <p class="muted">Does not alter the file stream; just prints a hex preview.</p>
+    </div>
+
+    <div>
+      <h3>6) Determinism test (Linux/macOS)</h3>
+      <pre><code>./key 1000 -o a.bin   # enter the same two passwords...
+./key 1000 -o b.bin
+cmp a.bin b.bin && echo "identical"</code><button class="copy">Copy</button></pre>
+      <p class="muted">On Windows PowerShell, use <code>fc /b a.bin b.bin</code>.</p>
+    </div>
+
+  </div>
+</section>
+
+<section id="choosing-params">
+  <h2>Choosing Argon2id parameters</h2>
+  <table>
+    <tr><th>Scenario</th><th>Suggested starting point</th><th>Notes</th></tr>
+    <tr>
+      <td>Interactive desktop</td>
+      <td><code>--argon2-memory 65536</code>, <code>--argon2-time 3</code>, <code>--argon2-par 0</code></td>
+      <td>64–128 MiB at 3–4 iters is a typical balance.</td>
+    </tr>
+    <tr>
+      <td>Batch / high‑security</td>
+      <td><code>--argon2-memory 262144</code>, <code>--argon2-time 4</code>, <code>--argon2-par 0</code></td>
+      <td>256–1024 MiB if your environment tolerates the cost.</td>
+    </tr>
+    <tr>
+      <td>Many cores</td>
+      <td><code>--argon2-par 0</code> (auto)</td>
+      <td>Larger parallelism increases minimum memory due to <strong>m ≥ 8p</strong>. Tool will reduce lanes if needed.</td>
+    </tr>
+  </table>
+  <div class="tip"><strong>Tip:</strong> If you see a message about reducing lanes, it’s the guardrail enforcing <code>m ≥ 8p</code> for Argon2.</div>
+</section>
+
+<section id="platform-notes">
+  <h2>Platform notes</h2>
+  <div class="grid grid-2">
+    <div>
+      <h3>Unix</h3>
+      <ul>
+        <li>Files created with <code>0600</code> and <strong>symlink following disabled</strong>.</li>
+        <li>Parent directory is <code>fsync</code>’d for crash‑consistency.</li>
+        <li>Process hardening: core dumps disabled; marked non‑dumpable where supported.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <ul>
+        <li>Protected DACL applied immediately (Owner/Admins/SYSTEM full control).</li>
+        <li>Use an <em>x64 Native Tools</em> prompt if building from source (MSVC linker required).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="security-notes">
+  <h2>Security notes (read me)</h2>
+  <ul>
+    <li><strong>Two passwords:</strong> the pepper becomes a <em>secret salt</em>. This multiplies brute‑force cost vs. public salts, but only if both passphrases are strong.</li>
+    <li><strong>Pepper rule:</strong> at least 8 characters and include at least one non‑whitespace character.</li>
+    <li><strong>Deterministic by design:</strong> anyone with both passwords + algorithm + Argon2 params can reproduce your bytes.</li>
+    <li><strong>Not a perfect OTP:</strong> don’t reuse keys; if the key repeats or is shorter than your data, OTP guarantees are broken.</li>
+    <li><strong>Think about storage:</strong> the tool sets strict perms, but backups/sync tools may copy your key elsewhere.</li>
+  </ul>
+</section>
+
+<section id="faq">
+  <h2>FAQ</h2>
+
+  <h3>What does <code>--print-first</code> actually do?</h3>
+  <p>It initializes the same stream and prints the first <code>N</code> bytes as hex to stdout. Then it re‑initializes the stream for file output. Your file contents aren’t affected.</p>
+
+  <h3>Which stream should I use: <code>blake3</code> or <code>chacha</code>?</h3>
+  <p><code>blake3</code> is usually faster and uses keyed BLAKE3’s XOF. <code>chacha</code> uses a CSPRNG stream (ChaCha20) seeded from the same 32‑byte seed. Both are deterministic; choose based on speed or ecosystem preferences.</p>
+
+  <h3>How big can I go?</h3>
+  <p>Up to 20 GiB (21,474,836,480 bytes). That cap is enforced.</p>
+
+  <h3>How do I compare files for equality?</h3>
+  <ul>
+    <li>Linux/macOS: <code>cmp a.bin b.bin</code></li>
+    <li>Windows PowerShell: <code>fc /b a.bin b.bin</code></li>
+  </ul>
+</section>
+
+<footer style="margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border);">
+  <p class="muted">key — deterministic key material generator • License: MIT OR Apache‑2.0</p>
+</footer>
+
+</main>
+
+<script>
+  // Simple "Copy" buttons for code blocks
+  document.querySelectorAll('pre .copy').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.parentElement.querySelector('code').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        const prev = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = prev, 1200);
+      });
+    });
+  });
+</script>
+</body>
+</html>
