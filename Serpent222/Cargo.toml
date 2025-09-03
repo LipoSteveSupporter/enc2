@@ -1,0 +1,40 @@
+[package]
+name = "serpent2"
+version = "0.3.0"
+edition = "2021"
+
+# Optional metadata:
+# description = "Password-based Serpent-CBC + HMAC file container with Argon2id KDF"
+# license = "MIT OR Apache-2.0"
+# repository = "https://example.com/your/repo"
+
+[dependencies]
+# CLI & error handling
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+
+# KDF & crypto primitives
+argon2 = { version = "0.5", features = ["password-hash"] }  # If you switch fully to `hash_password_into`, you can drop the feature.
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+
+# Block cipher (Serpent) + CBC mode + padding traits
+serpent = "0.5.1"
+cbc = "0.1"
+cipher = "0.4"
+
+# RNG & secrets
+rand = "0.8"
+secrecy = "0.8"
+zeroize = "1.6"
+
+# I/O & logging
+rpassword = "7.3"
+env_logger = "0.11"
+log = "0.4"
+
+# System info (used to clamp Argon2 parallelism p <= CPU cores)
+num_cpus = "1.16"
+
+# NOTE: TOML comments start with '#'.
