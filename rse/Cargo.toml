@@ -1,0 +1,34 @@
+[package]
+name = "rse"
+version = "0.1.0"
+edition = "2021"
+description = "Rust Safe Encrypt: crash-safe, misuse-resistant, chunked XChaCha20-Poly1305 file encryption CLI."
+license = "MIT OR Apache-2.0"
+# repository = "https://github.com/yourname/rse"
+# readme = "README.md"
+# keywords = ["encryption", "cli", "aead", "xchacha20poly1305"]
+# categories = ["command-line-utilities", "cryptography"]
+
+[dependencies]
+anyhow = "1"
+argon2 = "0.5"
+blake3 = "1"
+chacha20poly1305 = "0.10"
+clap = { version = "4", features = ["derive"] }
+hkdf = "0.12"
+rand = "0.8"
+sha2 = "0.10"
+rpassword = "7"
+zeroize = "1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
+debug = true
+incremental = true
+overflow-checks = true
