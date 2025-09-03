@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Safebox v2 (pure Rust, hard‑coded key) — Streaming, Atomic, Single‑Command File Encryptor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --fg:#111; --bg:#fff; --muted:#666; --accent:#0059ff; --code-bg:#f6f8fa; --border:#e5e7eb;}
+    html,body {margin:0; padding:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+               "Apple Color Emoji", "Segoe UI Emoji"; color:var(--fg); background:var(--bg); line-height:1.55;}
+    main {max-width: 980px; margin: 40px auto; padding: 0 20px 60px;}
+    h1,h2,h3 {line-height:1.2;}
+    h1 {font-size: 1.9rem; margin: 0 0 0.25rem;}
+    h2 {margin-top: 2.2rem;}
+    p.lead {color: var(--muted); margin-top:0;}
+    code, pre {font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;}
+    pre {background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow:auto; border:1px solid var(--border);}
+    code {background: var(--code-bg); padding: 0.15em 0.33em; border-radius: 6px; border:1px solid var(--border);}
+    kbd {background:#f0f0f0; padding:2px 6px; border-radius:4px; border:1px solid #d0d0d0;}
+    .box {border:1px solid var(--border); border-radius:10px; padding:14px 16px; background:#fff;}
+    .ok {background:#f0fff7; border-color:#a7f3d0;}
+    .warn {background:#fffdf2; border-color:#fde68a;}
+    .bad {background:#fff5f5; border-color:#fecaca;}
+    ul {margin-top:0;}
+    table {border-collapse: collapse; width:100%; margin: 12px 0;}
+    th, td {border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top;}
+    th {background:#fafafa;}
+    .muted {color: var(--muted);}
+    .small {font-size:0.95rem;}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Safebox v2 (pure Rust, hard‑coded key)</h1>
+    <p class="lead">A single‑command, streaming file encryptor/decryptor with atomic in‑place updates and built‑in self‑verification — simplified to use a <strong>hard‑coded master key only</strong> (no environment variables).</p>
+    <div class="box ok small">
+      <strong>Key properties:</strong> one command (<code>safebox &lt;file&gt;</code>), no double‑encrypt, crash‑safe atomic replace, authenticated streaming encryption (XChaCha20‑Poly1305), per‑file subkeys, integrity self‑check before commit, pure Rust dependencies, <strong>hard‑coded master key with a default value</strong>.
+    </div>
+  </header>
+
+  <section id="overview">
+    <h2>Overview</h2>
+    <p>
+      <strong>Safebox</strong> is a production‑grade file encryptor/decryptor focused on <em>data safety</em> and <em>operational simplicity</em>.
+      Invoke it with exactly one argument—the file path. Safebox auto‑detects whether the file is plaintext or already encrypted
+      (by magic header) and performs the correct action, preventing accidental double‑encryption.
+    </p>
+    <ul>
+      <li><strong>Single command:</strong> <code>safebox &lt;path&gt;</code>. Mode auto‑detected by header (<code>SBX2</code>).</li>
+      <li><strong>Atomic & crash‑safe:</strong> write to temp file in same directory → <code>fsync</code> → atomic rename over original.</li>
+      <li><strong>Self‑verification:</strong> after encrypting, Safebox decrypts its own temp output and compares a BLAKE3 hash of plaintext before replacing the original.</li>
+      <li><strong>Authenticated streaming AEAD:</strong> XChaCha20‑Poly1305 (pure Rust via the <code>chacha20poly1305</code> crate).</li>
+      <li><strong>Per‑file subkeys:</strong> derived from a <strong>hard‑coded</strong> 32‑byte master key + random salt stored in the header.</li>
+      <li><strong>No double‑encrypt:</strong> <code>SBX2</code> magic triggers decrypt; refuses legacy <code>SBX1</code> to prevent data loss.</li>
+      <li><strong>Metadata preservation:</strong> permissions and timestamps are restored after replacement.</li>
+      <li><strong>Concurrency guard:</strong> advisory sidecar lock <code>&lt;file&gt;.sbx.lock</code> avoids concurrent clobbering.</li>
+      <li><strong>Pure Rust:</strong> no C libraries; minimal dependencies.</li>
+    </ul>
+  </section>
+
+  <section id="security-model">
+    <h2>Security model &amp; caveats</h2>
+    <div class="box warn">
+      <p><strong>Hard‑coded master key:</strong> This build <em>only</em> uses a compiled‑in key. A <strong>default key</strong> is provided for convenience and must be replaced before real use. If the binary or its memory dumps leak, an attacker can extract the key. This matches the stated threat model (attacker does not have access to the machine running Safebox), but you should still protect distribution of the binary.</p>
+    </div>
+    <ul>
+      <li><strong>Confidentiality & integrity:</strong> Every frame is AEAD‑authenticated with AAD binding the file header, frame type, and counter; a final authenticated frame guarantees truncation detection.</li>
+      <li><strong>Data safety:</strong> Original file is untouched until the new content is fully written, synced, verified, and atomically renamed into place.</li>
+      <li><strong>Key hygiene:</strong> Key material is zeroized in memory on drop (via <code>Zeroizing</code>), but hard‑coding means the key can be recovered from the binary itself if it leaks.</li>
+    </ul>
+  </section>
+
+  <section id="build">
+    <h2>Build</h2>
+    <p>Requires Rust (stable). No external libraries.</p>
+    <pre><code># Clone or copy the project files
+cargo build --release
+# Binaries:
+# - Unix:  target/release/safebox
+# - Win:   target\release\safebox.exe
+</code></pre>
+  </section>
+
+  <section id="configure-key">
+    <h2>Configure the hard‑coded master key (required)</h2>
+    <p>Open <code>src/main.rs</code> and locate:</p>
+    <pre><code>const MASTER_KEY_HEX: &str =
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";</code></pre>
+    <div class="box bad">
+      <strong>Replace the default value</strong> with your own 64‑hex‑character string (32 bytes). Keep the old key somewhere safe if you need to decrypt old files later.
+    </div>
+    <details>
+      <summary><strong>Generate a random key (PowerShell)</strong></summary>
+      <pre><code>$b = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($b)
+($b | ForEach-Object { $_.ToString('x2') }) -join ''</code></pre>
+    </details>
+    <details>
+      <summary><strong>Generate a random key (bash)</strong></summary>
+      <pre><code>openssl rand -hex 32</code></pre>
+    </details>
+    <p>Paste the hex into <code>MASTER_KEY_HEX</code>, rebuild, and use that binary for both encryption and decryption. <strong>If you change the key later, you will not be able to decrypt files written with the old key unless you keep a copy of the old binary/key.</strong></p>
+  </section>
+
+  <section id="quickstart">
+    <h2>Quick start</h2>
+    <ol>
+      <li>Edit <code>MASTER_KEY_HEX</code> in <code>src/main.rs</code> and rebuild (<code>cargo build --release</code>).</li>
+      <li>Run with exactly one argument: the file path.</li>
+    </ol>
+    <details open>
+      <summary><strong>Examples</strong></summary>
+      <pre><code># Encrypt (auto-detected):
+safebox ./notes.txt
+
+# Decrypt (auto-detected):
+safebox ./notes.txt
+
+# Windows (PowerShell):
+.\target\release\safebox.exe ".\My Documents\photo.jpg"</code></pre>
+    </details>
+    <p>Running without an argument prints usage and exits with a non‑zero status.</p>
+  </section>
+
+  <section id="usage-notes">
+    <h2>Usage notes</h2>
+    <ul>
+      <li><strong>Same directory temp:</strong> A temporary file is created in the <em>same directory</em> to ensure cross‑device renames are not attempted (atomic within a single filesystem).</li>
+      <li><strong>Do not change the key between runs:</strong> Decryption requires the same master key used for encryption.</li>
+      <li><strong>No double‑encrypt:</strong> Files starting with the <code>SBX2</code> magic will be decrypted instead of encrypted.</li>
+      <li><strong>Legacy format guard:</strong> Files with <code>SBX1</code> (v1/libsodium) are refused; decrypt with a v1 binary first, then re‑encrypt with v2.</li>
+      <li><strong>Locks:</strong> A best‑effort advisory lock <code>&lt;file&gt;.sbx.lock</code> prevents two Safebox processes from touching the same file at once (auto‑cleaned via RAII).</li>
+    </ul>
+  </section>
+
+  <section id="data-safety">
+    <h2>Data safety &amp; atomicity</h2>
+    <ol>
+      <li>Open source file for reading.</li>
+      <li>Create a temporary file in the same directory (<code>.safebox.*.tmp</code>).</li>
+      <li>Stream‑encrypt (or decrypt) into the temp file.</li>
+      <li><strong>fsync</strong> the temp file to push data to storage.</li>
+      <li><strong>Self‑verification (encrypt only):</strong> reopen the temp file, decrypt it back, and compare a BLAKE3 hash of plaintext with the original.</li>
+      <li><strong>Atomic replace:</strong> rename the temp file over the original in one step.</li>
+      <li>Restore timestamps and permissions; perform best‑effort directory durability call.</li>
+    </ol>
+    <p class="muted">On Windows, directory syncing is best‑effort; the temp file itself is always <code>fsync</code>’d before rename.</p>
+  </section>
+
+  <section id="crypto">
+    <h2>Cryptography details</h2>
+    <ul>
+      <li><strong>Algorithm:</strong> XChaCha20‑Poly1305 (24‑byte nonce, 16‑byte tag) via <code>chacha20poly1305</code> (pure Rust).</li>
+      <li><strong>Key derivation:</strong> Per‑file subkey = <code>BLAKE3.keyed_hash(master_key, salt)</code>, where <code>salt</code> is 16 random bytes stored in the header.</li>
+      <li><strong>Nonces:</strong> 16‑byte per‑file random nonce base + 8‑byte big‑endian frame counter → 24‑byte XNonce.</li>
+      <li><strong>AAD:</strong> Fixed header bytes + frame type + frame counter for each frame; binds ciphertext to file identity and position.</li>
+      <li><strong>Final frame:</strong> Zero‑length payload with its own nonce/AAD; guarantees truncation detection at chunk boundaries.</li>
+      <li><strong>Chunk size:</strong> 64 KiB plaintext per Data frame (tune by changing <code>CHUNK_SIZE</code> in <code>main.rs</code>).</li>
+    </ul>
+  </section>
+
+  <section id="format">
+    <h2>File format (SBX2)</h2>
+    <h3>Header (fixed)</h3>
+    <table>
+      <thead><tr><th>Field</th><th>Bytes</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>MAGIC</code></td><td>4</td><td>ASCII <code>SBX2</code>.</td></tr>
+        <tr><td><code>ALGO_ID</code></td><td>1</td><td><code>0x02</code> (XChaCha20‑Poly1305 stream framing).</td></tr>
+        <tr><td><code>SALT_LEN</code></td><td>1</td><td><code>0x10</code> (16 bytes).</td></tr>
+        <tr><td><code>SALT</code></td><td>16</td><td>Random per‑file salt used for subkey derivation.</td></tr>
+        <tr><td><code>NB_LEN</code></td><td>1</td><td><code>0x10</code> (16 bytes).</td></tr>
+        <tr><td><code>NONCE_BASE</code></td><td>16</td><td>Random per‑file nonce base.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Frames (streaming)</h3>
+    <table>
+      <thead><tr><th>Field</th><th>Type/Bytes</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>FRAME_TYPE</code></td><td>1</td><td><code>0x00</code>=Data, <code>0xFF</code>=Final.</td></tr>
+        <tr><td><code>COUNTER</code></td><td>8</td><td>Big‑endian u64, starts at 0 and increments by 1 per frame.</td></tr>
+        <tr><td><code>CT_LEN</code></td><td>4</td><td>Big‑endian u32; length of ciphertext for this frame.</td></tr>
+        <tr><td><code>CIPHERTEXT</code></td><td><em>CT_LEN</em></td><td>AEAD output: encrypted chunk + 16‑byte tag.</td></tr>
+      </tbody>
+    </table>
+    <p><strong>AAD per frame:</strong> fixed header + frame type + counter. Exactly one Final frame must appear, carrying an empty plaintext. Any trailing bytes after Final cause decryption failure.</p>
+  </section>
+
+  <!-- ===================== NEW APPENDIX (your recent questions & details) ===================== -->
+  <section id="appendix" style="margin-top:2.5rem">
+    <h2>Appendix — Executables, Streaming/Chunking, Overhead & Key Format</h2>
+
+    <h3 id="executables">Can Safebox safely process executable files?</h3>
+    <ul>
+      <li><strong>Yes.</strong> Safebox operates on raw bytes and is <em>binary‑safe</em>. It works with <code>.exe</code>, <code>.dll</code>, <code>.so</code>, <code>.dylib</code>, Mach‑O, ELF—anything. After decryption you get a <strong>byte‑for‑byte identical</strong> file (we verify this by decrypting the temp file and comparing a BLAKE3 hash before the atomic rename).</li>
+      <li><strong>Permissions preserved:</strong> POSIX execute bits and timestamps are preserved. On Windows, basic attributes are preserved via the replacement file’s permissions.</li>
+      <li><strong>While in use:</strong> If another process holds the destination file open (e.g., you try to encrypt a running EXE), Windows may block the replace; Safebox aborts before rename so the original remains intact.</li>
+      <li><strong>Special metadata caveat:</strong> Extended attributes, POSIX ACLs beyond mode bits, and Windows Alternate Data Streams (ADS) are not currently preserved. Most executables don’t rely on these, but if yours do, see “Metadata preservation options” below.</li>
+    </ul>
+
+    <h3 id="streaming">Does it process in chunks or load the whole file?</h3>
+    <ul>
+      <li><strong>Streaming, not whole‑file.</strong> Safebox encrypts/decrypts in <strong>64&nbsp;KiB chunks</strong> (configurable via <code>CHUNK_SIZE</code>). Memory stays small and constant even for very large files.</li>
+      <li><strong>Framing & integrity:</strong> Each chunk is an AEAD‑authenticated frame with AAD that binds the file header, frame type, and counter. A <strong>Final</strong> zero‑length frame guarantees truncation detection.</li>
+    </ul>
+
+    <h3 id="overhead">How much on‑disk overhead does the format add?</h3>
+    <ul>
+      <li><strong>Fixed header:</strong> 39 bytes per file.</li>
+      <li><strong>Per frame (each data chunk & the final frame):</strong> 13‑byte frame header + 16‑byte AEAD tag = <strong>29 bytes</strong>.</li>
+      <li><strong>Total overhead:</strong> <code>39 + (N<sub>data</sub> + 1) × 29</code>, where <code>N<sub>data</sub> = ceil(plaintext_bytes / CHUNK_SIZE)</code>.</li>
+      <li><strong>Example (100&nbsp;MiB, 64&nbsp;KiB chunks):</strong> <code>N<sub>data</sub>=1600</code> → overhead <code>= 39 + (1600+1)×29 = 46,468 bytes ≈ 45.4&nbsp;KiB</code>.</li>
+    </ul>
+
+    <h3 id="metadata">Metadata preservation options (advanced)</h3>
+    <p>If you need to preserve extra metadata, you can extend the implementation:</p>
+    <ul>
+      <li><strong>POSIX xattrs/ACLs:</strong> read extended attributes (e.g., via platform APIs or community crates) before processing; write them to the temp file before the atomic rename.</li>
+      <li><strong>Windows ADS:</strong> enumerate named streams on the original and copy them to the temp file (using the Windows API) before rename.</li>
+      <li><strong>Where to hook:</strong> In code, capture metadata right after <code>fs::metadata</code> in <code>encrypt_in_place</code>/<code>decrypt_in_place</code>; restore it just before the final <code>rename</code>.</li>
+    </ul>
+    <p class="muted">Note: these extensions don’t affect the file’s bytes or cryptography; they only mirror metadata around the atomic replace.</p>
+
+    <h3 id="key-format">Does hex limit the number of keys compared to a “binary” key?</h3>
+    <ul>
+      <li><strong>No.</strong> A 64‑hex‑character string encodes exactly 32 bytes (256 bits) → the same <strong>2²⁵⁶</strong> key space as a raw 32‑byte “binary” key.</li>
+      <li>Entropy loss happens only if you choose keys from a smaller character set or human‑memorable strings. Generating the 64 hex chars randomly (as shown above) preserves full strength.</li>
+      <li><strong>Alternative representation (functionally identical):</strong> You can store the key as raw bytes instead of hex to skip the tiny decode step:
+        <pre><code>const MASTER_KEY: [u8; 32] = [
+  0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07, 0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+  0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17, 0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f,
+];
+// then return MASTER_KEY from load_master_key()</code></pre>
+      </li>
+    </ul>
+
+    <h3 id="safety-recap">Safety recap</h3>
+    <ul>
+      <li><strong>Atomic replace:</strong> original file is untouched until the new file is fully written, <code>fsync</code>’d, verified (encrypt path), and atomically renamed into place.</li>
+      <li><strong>Authentication everywhere:</strong> Any corruption, reordering, or missing final frame causes decryption to fail (fail‑closed).</li>
+      <li><strong>Locking:</strong> a sidecar lock file (<code>.sbx.lock</code>) prevents two concurrent runs on the same target; it is automatically removed even on error paths.</li>
+    </ul>
+  </section>
+  <!-- ===================== END APPENDIX ===================== -->
+
+  <footer class="muted">
+    <p>© 2025 Safebox v2 (pure Rust, hard‑coded key). Replace the default key before real use. No warranty; test in your environment.</p>
+  </footer>
+</main>
+</body>
+</html>
